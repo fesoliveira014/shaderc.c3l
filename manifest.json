@@ -1,0 +1,7 @@
+{
+  "provides": "shaderc",
+  "targets": {
+    "linux-x64":   { "linked-libraries": ["shaderc_shared"] },
+    "windows-x64": { "linked-libraries": ["shaderc_shared"] }
+  }
+}

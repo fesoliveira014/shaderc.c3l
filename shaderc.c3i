@@ -1,0 +1,49 @@
+module shaderc;
+
+typedef Compiler       = inline void*;
+typedef CompileOptions = inline void*;
+typedef Result         = inline void*;
+
+constdef ShaderKind : int
+{
+    VERTEX_SHADER   = 0,
+    FRAGMENT_SHADER = 1,
+    COMPUTE_SHADER  = 2,
+}
+
+constdef TargetEnv : int
+{
+    TARGET_ENV_VULKAN = 0,
+}
+
+constdef EnvVersion : uint
+{
+    ENV_VERSION_VULKAN_1_3 = (1u << 22) | (3u << 12),
+}
+
+constdef OptimizationLevel : int
+{
+    OPTIMIZATION_LEVEL_ZERO        = 0,
+    OPTIMIZATION_LEVEL_SIZE        = 1,
+    OPTIMIZATION_LEVEL_PERFORMANCE = 2,
+}
+
+constdef CompilationStatus : int
+{
+    COMPILATION_STATUS_SUCCESS = 0,
+}
+
+extern fn Compiler       compiler_create() @cname("shaderc_compiler_initialize");
+extern fn void           Compiler.release(Compiler self) @cname("shaderc_compiler_release");
+extern fn Result         Compiler.compile_into_spv(Compiler self, char* source_text, usz source_size, ShaderKind kind, char* input_file_name, char* entry_point_name, CompileOptions options) @cname("shaderc_compile_into_spv");
+
+extern fn CompileOptions options_create() @cname("shaderc_compile_options_initialize");
+extern fn void           CompileOptions.set_target_env(CompileOptions self, TargetEnv env, EnvVersion version) @cname("shaderc_compile_options_set_target_env");
+extern fn void           CompileOptions.set_optimization_level(CompileOptions self, OptimizationLevel level) @cname("shaderc_compile_options_set_optimization_level");
+extern fn void           CompileOptions.release(CompileOptions self) @cname("shaderc_compile_options_release");
+
+extern fn CompilationStatus Result.get_compilation_status(Result self) @cname("shaderc_result_get_compilation_status");
+extern fn usz               Result.get_length(Result self) @cname("shaderc_result_get_length");
+extern fn char*             Result.get_bytes(Result self) @cname("shaderc_result_get_bytes");
+extern fn char*             Result.get_error_message(Result self) @cname("shaderc_result_get_error_message");
+extern fn void              Result.release(Result self) @cname("shaderc_result_release");
