@@ -1,0 +1,36 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: shaderc.c3l
+      - name: install c3c 0.8.0
+        run: |
+          curl -L -o c3c.tar.gz https://github.com/c3lang/c3c/releases/download/v0.8.0/c3-linux.tar.gz
+          tar xf c3c.tar.gz
+          echo "$PWD/c3" >> "$GITHUB_PATH"
+      - name: smoke compile+link
+        run: |
+          mkdir smoke && cd smoke
+          cat > project.json <<'JSON'
+          {
+            "langrev": "1",
+            "dependency-search-paths": [ ".." ],
+            "dependencies": [ "shaderc" ],
+            "sources": [ "main.c3" ],
+            "targets": { "smoke": { "type": "executable" } }
+          }
+          JSON
+          cat > main.c3 <<'C3'
+          module smoke;
+          import shaderc;
+          fn void main()
+          {
+              shaderc::Compiler compiler = shaderc::compiler_create();
+              compiler.release();
+          }
+          C3
+          c3c build smoke

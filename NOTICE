@@ -1,0 +1,5 @@
+This package vendors libshaderc (linux/libshaderc_shared.so.1), part of
+Google's shaderc project, licensed under the Apache License 2.0. The full
+license text is in LICENSE.shaderc.apache-2.0. See https://github.com/google/shaderc.
+
+The C3 binding itself (shaderc.c3i) is MIT-licensed — see LICENSE.
