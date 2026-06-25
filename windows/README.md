@@ -1,9 +1,9 @@
 # windows shaderc libs
 
-Vendor these two files here and commit them, exactly as `linux/` commits
+These two files are vendored here and committed, exactly as `linux/` commits
 `libshaderc_shared.so.1` from the Linux SDK. They come from a Windows Vulkan SDK
-install (we can't produce them from the Linux dev box, so this directory ships
-the README only until someone on Windows drops the binaries in):
+install (`C:\VulkanSDK\<ver>\Lib\shaderc_shared.lib` and
+`...\Bin\shaderc_shared.dll`):
 
 - `shaderc_shared.lib` — the MSVC **import library** for `shaderc_shared.dll`,
   from the Windows Vulkan SDK's `Lib/shaderc_shared.lib`. c3c's default Windows
