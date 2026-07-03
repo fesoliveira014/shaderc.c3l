@@ -18,6 +18,7 @@ constdef TargetEnv : int
 
 constdef EnvVersion : uint
 {
+    ENV_VERSION_VULKAN_1_2 = (1u << 22) | (2u << 12),
     ENV_VERSION_VULKAN_1_3 = (1u << 22) | (3u << 12),
 }
 
