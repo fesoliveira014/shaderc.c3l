@@ -22,6 +22,17 @@ constdef EnvVersion : uint
     ENV_VERSION_VULKAN_1_3 = (1u << 22) | (3u << 12),
 }
 
+constdef SpirvVersion : uint
+{
+    SPIRV_VERSION_1_5 = 0x010500u,
+}
+
+constdef IncludeType : int
+{
+    INCLUDE_TYPE_RELATIVE = 0,
+    INCLUDE_TYPE_STANDARD = 1,
+}
+
 constdef OptimizationLevel : int
 {
     OPTIMIZATION_LEVEL_ZERO        = 0,
@@ -34,6 +45,18 @@ constdef CompilationStatus : int
     COMPILATION_STATUS_SUCCESS = 0,
 }
 
+struct IncludeResult
+{
+    char* source_name;
+    usz   source_name_length;
+    char* content;
+    usz   content_length;
+    void* user_data;
+}
+
+alias IncludeResolveFn = fn IncludeResult*(void* user_data, char* requested_source, IncludeType type, char* requesting_source, usz include_depth);
+alias IncludeReleaseFn = fn void(void* user_data, IncludeResult* include_result);
+
 extern fn Compiler       compiler_create() @cname("shaderc_compiler_initialize");
 extern fn void           Compiler.release(Compiler self) @cname("shaderc_compiler_release");
 extern fn Result         Compiler.compile_into_spv(Compiler self, char* source_text, usz source_size, ShaderKind kind, char* input_file_name, char* entry_point_name, CompileOptions options) @cname("shaderc_compile_into_spv");
@@ -41,9 +64,13 @@ extern fn Result         Compiler.compile_into_spv(Compiler self, char* source_t
 extern fn CompileOptions options_create() @cname("shaderc_compile_options_initialize");
 extern fn void           CompileOptions.set_target_env(CompileOptions self, TargetEnv env, EnvVersion version) @cname("shaderc_compile_options_set_target_env");
 extern fn void           CompileOptions.set_optimization_level(CompileOptions self, OptimizationLevel level) @cname("shaderc_compile_options_set_optimization_level");
+extern fn void           CompileOptions.set_target_spirv(CompileOptions self, SpirvVersion version) @cname("shaderc_compile_options_set_target_spirv");
+extern fn void           CompileOptions.add_macro_definition(CompileOptions self, char* name, usz name_length, char* value, usz value_length) @cname("shaderc_compile_options_add_macro_definition");
+extern fn void           CompileOptions.set_include_callbacks(CompileOptions self, IncludeResolveFn resolver, IncludeReleaseFn result_releaser, void* user_data) @cname("shaderc_compile_options_set_include_callbacks");
 extern fn void           CompileOptions.release(CompileOptions self) @cname("shaderc_compile_options_release");
 
 extern fn CompilationStatus Result.get_compilation_status(Result self) @cname("shaderc_result_get_compilation_status");
+extern fn usz               Result.get_num_errors(Result self) @cname("shaderc_result_get_num_errors");
 extern fn usz               Result.get_length(Result self) @cname("shaderc_result_get_length");
 extern fn char*             Result.get_bytes(Result self) @cname("shaderc_result_get_bytes");
 extern fn char*             Result.get_error_message(Result self) @cname("shaderc_result_get_error_message");

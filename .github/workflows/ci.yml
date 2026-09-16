@@ -30,6 +30,11 @@ jobs:
           fn void main()
           {
               shaderc::Compiler compiler = shaderc::compiler_create();
+              shaderc::CompileOptions options = shaderc::options_create();
+              options.set_target_spirv(shaderc::SpirvVersion.SPIRV_VERSION_1_5);
+              options.add_macro_definition("SMOKE", 5, "1", 1);
+              options.set_include_callbacks(null, null, null);
+              options.release();
               compiler.release();
           }
           C3
