@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -20,18 +20,29 @@ jobs:
       matrix:
         include:
           - target: linux-x64
+            platform: linux
             os: ubuntu-22.04
           - target: windows-x64
+            platform: windows
             os: windows-2022
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     defaults:
       run:
         shell: bash
+        working-directory: shaderc.c3l
+    env:
+      TARGET: ${{ matrix.target }}
+      PLATFORM: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
         with:
           path: shaderc.c3l
+      - uses: actions/checkout@v4
+        with:
+          repository: google/shaderc
+          ref: 0968768c61d4eb7dd861114412e904bb3d59b7b6 # v2025.1
+          path: upstream
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -39,12 +50,40 @@ jobs:
         if: runner.os == 'Windows'
         with:
           arch: x64
-      - name: Test release tooling
-        working-directory: shaderc.c3l
-        run: python -B -m unittest discover -s tests -v
-      - name: Build pinned shaderc
-        working-directory: shaderc.c3l
-        run: python scripts/build_native.py --jobs 2
+      - name: Fetch upstream dependencies
+        working-directory: upstream
+        run: python utils/git-sync-deps
+      - name: Build shared library
+        run: |
+          cmake_args=()
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cmake_args=(-G "Visual Studio 17 2022" -A x64)
+          fi
+          cmake -S ../upstream -B build/native "${cmake_args[@]}" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
+            -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WERROR_COMPILE=OFF \
+            -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
+            -DSHADERC_ENABLE_SHARED_CRT=OFF
+          cmake --build build/native --config Release --target shaderc_shared --parallel 2
+      - name: Package library
+        run: |
+          bundle=build/package/shaderc.c3l
+          mkdir -p "$bundle/$PLATFORM" "$bundle/licenses" dist
+          cp manifest.json shaderc.c3i README.md LICENSE NOTICE LICENSE.shaderc.apache-2.0 "$bundle/"
+          cp ../upstream/third_party/glslang/LICENSE.txt "$bundle/licenses/glslang.txt"
+          cp ../upstream/third_party/spirv-tools/LICENSE "$bundle/licenses/spirv-tools.txt"
+          cp ../upstream/third_party/spirv-headers/LICENSE "$bundle/licenses/spirv-headers.txt"
+          cp ../upstream/DEPS "$bundle/licenses/shaderc-DEPS"
+          git -C ../upstream rev-parse HEAD > "$bundle/licenses/shaderc-revision.txt"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cp build/native/libshaderc/Release/shaderc_shared.{dll,lib} "$bundle/windows/"
+          else
+            cp build/native/libshaderc/libshaderc_shared.so.1 "$bundle/linux/"
+          fi
+          tar -czf "dist/shaderc.c3l-${TARGET}.tar.gz" -C build/package shaderc.c3l
+          cd dist
+          sha256sum "shaderc.c3l-${TARGET}.tar.gz" > "shaderc.c3l-${TARGET}.tar.gz.sha256"
       - name: Install C3 (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -59,21 +98,18 @@ jobs:
             "https://github.com/c3lang/c3c/releases/download/v${C3C_VERSION}/c3-windows.zip"
           unzip -q "$RUNNER_TEMP/c3.zip" -d "$RUNNER_TEMP"
           cygpath -w "$RUNNER_TEMP/c3" >> "$GITHUB_PATH"
-      - name: Compile and run consumer
-        working-directory: shaderc.c3l
-        run: python scripts/smoke.py
-      - name: Package platform bundle
-        working-directory: shaderc.c3l
-        env:
-          TARGET: ${{ matrix.target }}
-        run: python scripts/package_release.py --target "$TARGET" --version ci
-      - name: Test extracted bundle
-        working-directory: shaderc.c3l
-        env:
-          TARGET: ${{ matrix.target }}
+      - name: Test packaged library
         run: |
-          python -m zipfile -e "dist/shaderc.c3l-ci-${TARGET}.zip" "$RUNNER_TEMP/consumer"
-          python scripts/smoke.py --library "$RUNNER_TEMP/consumer/shaderc.c3l"
+          mkdir -p build/consumer
+          tar -xzf "dist/shaderc.c3l-${TARGET}.tar.gz" -C build/consumer
+          cd build
+          c3c compile ../tests/smoke.c3 --libdir consumer --lib shaderc --warn-deprecation=error -o smoke
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cp consumer/shaderc.c3l/windows/shaderc_shared.dll .
+            ./smoke.exe
+          else
+            LD_LIBRARY_PATH="$PWD/consumer/shaderc.c3l/linux" ./smoke
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: shaderc-${{ matrix.target }}
@@ -88,25 +124,17 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
           pattern: shaderc-*
-          path: artifacts
-      - name: Verify and assemble release
-        run: |
-          python scripts/fetch_native_libs.py "$GITHUB_REF_NAME" --target linux-x64 \
-            --base-url "file://$PWD/artifacts/shaderc-linux-x64"
-          python scripts/fetch_native_libs.py "$GITHUB_REF_NAME" --target windows-x64 \
-            --base-url "file://$PWD/artifacts/shaderc-windows-x64"
-          python scripts/package_release.py --version "$GITHUB_REF_NAME"
-      - name: Publish release
+          merge-multiple: true
+          path: dist
+      - name: Verify and publish release
+        working-directory: dist
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          sha256sum -c ./*.sha256
+          gh release create "$GITHUB_REF_NAME" ./*.tar.gz ./*.sha256 \
             --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "$GITHUB_REF_NAME" --generate-notes

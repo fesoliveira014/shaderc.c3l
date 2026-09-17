@@ -1,52 +1,37 @@
 # shaderc.c3l
 
-C3 binding for [shaderc](https://github.com/google/shaderc) — runtime GLSL to SPIR-V
-compilation on Linux x64 and Windows x64. Tested with C3 0.8.3.
+C3 binding for [shaderc](https://github.com/google/shaderc), providing runtime
+GLSL to SPIR-V compilation on Linux x64 and Windows x64. Tested with C3 0.8.3.
 
-Native libraries are built by CI from pinned sources and distributed as CI
-artifacts and GitHub release assets. The Git checkout contains no native binaries.
+Native binaries are built by CI and distributed through
+[releases](https://github.com/fesoliveira014/shaderc.c3l/releases). They are not
+stored in Git.
 
 ## Install
 
-Download `shaderc.c3l-<tag>.zip` and `SHA256SUMS` from the matching
-[release](https://github.com/fesoliveira014/shaderc.c3l/releases), verify the ZIP's
-SHA-256 against `SHA256SUMS`, then extract it into your dependency search path:
+Download the bundle for your platform and its `.sha256` file from the same
+release:
+
+- `shaderc.c3l-linux-x64.tar.gz`
+- `shaderc.c3l-windows-x64.tar.gz`
+
+Each bundle contains `shaderc.c3l/` with the binding, native libraries, and
+licenses. Verify and extract it into your dependency search path. For Linux:
 
 ```sh
-unzip shaderc.c3l-<tag>.zip -d lib
+sha256sum -c shaderc.c3l-linux-x64.tar.gz.sha256
+mkdir -p lib
+tar -xzf shaderc.c3l-linux-x64.tar.gz -C lib
 ```
 
-The bundle contains `lib/shaderc.c3l/`, including both platforms' libraries,
-the binding, and native licenses. Use this uploaded bundle; GitHub's automatic
-"Source code" archives contain no binaries.
+On Windows, compare `Get-FileHash shaderc.c3l-windows-x64.tar.gz -Algorithm SHA256`
+with the downloaded `.sha256` file, then extract with `tar -xzf` as above.
 
-### Git submodule
-
-Check out a release tag, then fetch the native library for your host with Python
-3.10 or newer:
-
-```sh
-git submodule add https://github.com/fesoliveira014/shaderc.c3l lib/shaderc.c3l
-git -C lib/shaderc.c3l checkout <tag>
-python3 lib/shaderc.c3l/scripts/fetch_native_libs.py
-```
-
-On Windows, use `python` in place of `python3`. The helper defaults to the exact
-tag of the binding checkout and checks every asset against the release's
-`SHA256SUMS` before installing it. Use `--target all` to install both platforms or
-`--target windows-x64` to prepare a Windows package from Linux. An explicit tag
-can be passed as the first argument; choose one compatible with your binding.
-
-Development commits, and checkouts before the first release, can build the
-pinned native library locally:
-
-```sh
-python3 lib/shaderc.c3l/scripts/build_native.py
-```
-
-This requires Git, CMake 3.22.1+, Python 3.10+, and a C++17 compiler. Linux uses
-the default CMake generator; Windows uses Visual Studio 2022 with the x64 C++
-tools. Sources and build output are cached under `build/native/`.
+For a Git submodule, check out the matching release tag and extract the bundle
+into the submodule's parent directory (for example, `lib/`). GitHub's automatic
+"Source code" downloads contain no native libraries. Before a release is
+available, the same bundles can be downloaded from a successful CI run's
+artifacts.
 
 ## Use
 
@@ -65,26 +50,17 @@ defer compiler.release();
 
 ## Runtime libraries
 
-| Target | Installed files | Runtime setup |
-| --- | --- | --- |
-| `linux-x64` | `linux/libshaderc_shared.so.1` | Ship the `.so` and set an appropriate executable RUNPATH, or add its directory to `LD_LIBRARY_PATH` during development. |
-| `windows-x64` | `windows/shaderc_shared.lib`, `windows/shaderc_shared.dll` | Ship the DLL beside your executable. The `.lib` is an MSVC import library used at link time. |
+- **Linux:** ship `linux/libshaderc_shared.so.1` and configure your executable's
+  RUNPATH or `LD_LIBRARY_PATH` to find it. CI builds on Ubuntu 22.04; the library
+  uses the system C++ runtime.
+- **Windows:** `windows/shaderc_shared.lib` is the import library used at link
+  time. Ship `windows/shaderc_shared.dll` beside your executable.
 
-The existing library paths and manifest link names are preserved. CI builds
-Linux on Ubuntu 22.04 (glibc 2.35); the library also uses the system C++ runtime.
-Windows builds use the static MSVC CRT inside the DLL. No Vulkan SDK, Vulkan
-driver, or GPU is needed to compile shaders with this package.
-
-Each release also provides `libshaderc_shared-linux-x64.so.1`,
-`shaderc_shared-windows-x64.dll`, `shaderc_shared-windows-x64.lib`, and
-`shaderc-native-info-<target>.zip` for manual installation. Rename the platform
-suffixes away when installing individual libraries to the paths above. The
-download helper handles this and installs the native source revisions and
-licenses under `native-info/<target>/`.
+No Vulkan SDK, Vulkan driver, or GPU is needed to compile shaders.
 
 ## License
 
-The binding is MIT-licensed (`LICENSE`). Shaderc is Apache-2.0 licensed
-(`LICENSE.shaderc.apache-2.0`); native distributions also include the glslang,
-SPIRV-Tools, and SPIRV-Headers licenses. Retain these notices when redistributing
-the libraries; see `NOTICE` and `native-info/<target>/` in the release bundle.
+The binding is MIT-licensed (`LICENSE`); shaderc is Apache-2.0 licensed
+(`LICENSE.shaderc.apache-2.0`). Bundles include the glslang, SPIRV-Tools, and
+SPIRV-Headers licenses under `licenses/`. Keep these notices when redistributing
+binaries; see `NOTICE`.
