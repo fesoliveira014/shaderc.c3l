@@ -20,10 +20,8 @@ jobs:
       matrix:
         include:
           - target: linux-x64
-            platform: linux
             os: ubuntu-22.04
           - target: windows-x64
-            platform: windows
             os: windows-2022
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -32,8 +30,7 @@ jobs:
         shell: bash
         working-directory: shaderc.c3l
     env:
-      TARGET: ${{ matrix.target }}
-      PLATFORM: ${{ matrix.platform }}
+      SHADERC_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,7 +66,7 @@ jobs:
       - name: Package library
         run: |
           bundle=build/package/shaderc.c3l
-          mkdir -p "$bundle/$PLATFORM" "$bundle/licenses" dist
+          mkdir -p "$bundle/${SHADERC_TARGET%-x64}" "$bundle/licenses" dist
           cp manifest.json shaderc.c3i README.md LICENSE NOTICE LICENSE.shaderc.apache-2.0 "$bundle/"
           cp ../upstream/third_party/glslang/LICENSE.txt "$bundle/licenses/glslang.txt"
           cp ../upstream/third_party/spirv-tools/LICENSE "$bundle/licenses/spirv-tools.txt"
@@ -81,9 +78,9 @@ jobs:
           else
             cp build/native/libshaderc/libshaderc_shared.so.1 "$bundle/linux/"
           fi
-          tar -czf "dist/shaderc.c3l-${TARGET}.tar.gz" -C build/package shaderc.c3l
+          tar -czf "dist/shaderc.c3l-${SHADERC_TARGET}.tar.gz" -C build/package shaderc.c3l
           cd dist
-          sha256sum "shaderc.c3l-${TARGET}.tar.gz" > "shaderc.c3l-${TARGET}.tar.gz.sha256"
+          sha256sum "shaderc.c3l-${SHADERC_TARGET}.tar.gz" > "shaderc.c3l-${SHADERC_TARGET}.tar.gz.sha256"
       - name: Install C3 (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -101,7 +98,7 @@ jobs:
       - name: Test packaged library
         run: |
           mkdir -p build/consumer
-          tar -xzf "dist/shaderc.c3l-${TARGET}.tar.gz" -C build/consumer
+          tar -xzf "dist/shaderc.c3l-${SHADERC_TARGET}.tar.gz" -C build/consumer
           cd build
           c3c compile ../tests/smoke.c3 --libdir consumer --lib shaderc --warn-deprecation=error -o smoke
           if [[ "$RUNNER_OS" == Windows ]]; then
