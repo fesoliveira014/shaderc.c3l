@@ -1,5 +1,9 @@
-This package vendors libshaderc (linux/libshaderc_shared.so.1), part of
-Google's shaderc project, licensed under the Apache License 2.0. The full
-license text is in LICENSE.shaderc.apache-2.0. See https://github.com/google/shaderc.
+Native distributions of this package include libshaderc, part of Google's
+shaderc project, licensed under the Apache License 2.0. The full license
+text is in LICENSE.shaderc.apache-2.0. See https://github.com/google/shaderc.
+
+The shared library includes code from glslang, SPIRV-Tools, and SPIRV-Headers.
+Native distributions carry their license texts and pinned source revisions
+under native-info/<target>/. Keep these notices with redistributed binaries.
 
 The C3 binding itself (shaderc.c3i) is MIT-licensed — see LICENSE.

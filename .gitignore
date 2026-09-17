@@ -1,0 +1,11 @@
+/build/
+/dist/
+/linux/*.so*
+/windows/*.dll
+/windows/*.lib
+/native-info/
+__pycache__/
+/tests/build/
+/tests/smoke
+/tests/smoke.exe
+/worktrees/

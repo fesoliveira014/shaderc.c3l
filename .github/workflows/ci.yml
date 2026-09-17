@@ -1,41 +1,112 @@
 name: ci
-on: [push, pull_request]
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  C3C_VERSION: '0.8.3'
+
 jobs:
-  smoke:
-    runs-on: ubuntu-latest
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-22.04
+          - target: windows-x64
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
           path: shaderc.c3l
-      - name: install c3c 0.8.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+      - name: Test release tooling
+        working-directory: shaderc.c3l
+        run: python -B -m unittest discover -s tests -v
+      - name: Build pinned shaderc
+        working-directory: shaderc.c3l
+        run: python scripts/build_native.py --jobs 2
+      - name: Install C3 (Linux)
+        if: runner.os == 'Linux'
         run: |
-          curl -L -o c3c.tar.gz https://github.com/c3lang/c3c/releases/download/v0.8.0/c3-linux.tar.gz
-          tar xf c3c.tar.gz
-          echo "$PWD/c3" >> "$GITHUB_PATH"
-      - name: smoke compile+link
+          curl -fsSL -o "$RUNNER_TEMP/c3.tar.gz" \
+            "https://github.com/c3lang/c3c/releases/download/v${C3C_VERSION}/c3-linux-static.tar.gz"
+          tar -xzf "$RUNNER_TEMP/c3.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/c3" >> "$GITHUB_PATH"
+      - name: Install C3 (Windows)
+        if: runner.os == 'Windows'
         run: |
-          mkdir smoke && cd smoke
-          cat > project.json <<'JSON'
-          {
-            "langrev": "1",
-            "dependency-search-paths": [ ".." ],
-            "dependencies": [ "shaderc" ],
-            "sources": [ "main.c3" ],
-            "targets": { "smoke": { "type": "executable" } }
-          }
-          JSON
-          cat > main.c3 <<'C3'
-          module smoke;
-          import shaderc;
-          fn void main()
-          {
-              shaderc::Compiler compiler = shaderc::compiler_create();
-              shaderc::CompileOptions options = shaderc::options_create();
-              options.set_target_spirv(shaderc::SpirvVersion.SPIRV_VERSION_1_5);
-              options.add_macro_definition("SMOKE", 5, "1", 1);
-              options.set_include_callbacks(null, null, null);
-              options.release();
-              compiler.release();
-          }
-          C3
-          c3c build smoke
+          curl -fsSL -o "$RUNNER_TEMP/c3.zip" \
+            "https://github.com/c3lang/c3c/releases/download/v${C3C_VERSION}/c3-windows.zip"
+          unzip -q "$RUNNER_TEMP/c3.zip" -d "$RUNNER_TEMP"
+          cygpath -w "$RUNNER_TEMP/c3" >> "$GITHUB_PATH"
+      - name: Compile and run consumer
+        working-directory: shaderc.c3l
+        run: python scripts/smoke.py
+      - name: Package platform bundle
+        working-directory: shaderc.c3l
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python scripts/package_release.py --target "$TARGET" --version ci
+      - name: Test extracted bundle
+        working-directory: shaderc.c3l
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          python -m zipfile -e "dist/shaderc.c3l-ci-${TARGET}.zip" "$RUNNER_TEMP/consumer"
+          python scripts/smoke.py --library "$RUNNER_TEMP/consumer/shaderc.c3l"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shaderc-${{ matrix.target }}
+          path: shaderc.c3l/dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: native
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shaderc-*
+          path: artifacts
+      - name: Verify and assemble release
+        run: |
+          python scripts/fetch_native_libs.py "$GITHUB_REF_NAME" --target linux-x64 \
+            --base-url "file://$PWD/artifacts/shaderc-linux-x64"
+          python scripts/fetch_native_libs.py "$GITHUB_REF_NAME" --target windows-x64 \
+            --base-url "file://$PWD/artifacts/shaderc-windows-x64"
+          python scripts/package_release.py --version "$GITHUB_REF_NAME"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$GITHUB_REF_NAME" --generate-notes
