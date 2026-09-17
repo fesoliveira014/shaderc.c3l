@@ -1,0 +1,7 @@
+/build/
+/dist/
+/linux/*.so*
+/windows/*.dll
+/windows/*.lib
+/licenses/
+/worktrees/

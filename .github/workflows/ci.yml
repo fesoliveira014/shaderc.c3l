@@ -1,41 +1,137 @@
 name: ci
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  C3C_VERSION: '0.8.3'
+
 jobs:
-  smoke:
-    runs-on: ubuntu-latest
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-22.04
+          - target: windows-x64
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: shaderc.c3l
+    env:
+      SHADERC_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
         with:
           path: shaderc.c3l
-      - name: install c3c 0.8.0
+      - uses: actions/checkout@v4
+        with:
+          repository: google/shaderc
+          ref: 0968768c61d4eb7dd861114412e904bb3d59b7b6 # v2025.1
+          path: upstream
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+      - name: Fetch upstream dependencies
+        working-directory: upstream
+        run: python utils/git-sync-deps
+      - name: Build shared library
         run: |
-          curl -L -o c3c.tar.gz https://github.com/c3lang/c3c/releases/download/v0.8.0/c3-linux.tar.gz
-          tar xf c3c.tar.gz
-          echo "$PWD/c3" >> "$GITHUB_PATH"
-      - name: smoke compile+link
+          cmake_args=()
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cmake_args=(-G "Visual Studio 17 2022" -A x64)
+          fi
+          cmake -S ../upstream -B build/native "${cmake_args[@]}" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
+            -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WERROR_COMPILE=OFF \
+            -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
+            -DSHADERC_ENABLE_SHARED_CRT=OFF
+          cmake --build build/native --config Release --target shaderc_shared --parallel 2
+      - name: Package library
         run: |
-          mkdir smoke && cd smoke
-          cat > project.json <<'JSON'
-          {
-            "langrev": "1",
-            "dependency-search-paths": [ ".." ],
-            "dependencies": [ "shaderc" ],
-            "sources": [ "main.c3" ],
-            "targets": { "smoke": { "type": "executable" } }
-          }
-          JSON
-          cat > main.c3 <<'C3'
-          module smoke;
-          import shaderc;
-          fn void main()
-          {
-              shaderc::Compiler compiler = shaderc::compiler_create();
-              shaderc::CompileOptions options = shaderc::options_create();
-              options.set_target_spirv(shaderc::SpirvVersion.SPIRV_VERSION_1_5);
-              options.add_macro_definition("SMOKE", 5, "1", 1);
-              options.set_include_callbacks(null, null, null);
-              options.release();
-              compiler.release();
-          }
-          C3
-          c3c build smoke
+          bundle=build/package/shaderc.c3l
+          mkdir -p "$bundle/${SHADERC_TARGET%-x64}" "$bundle/licenses" dist
+          cp manifest.json shaderc.c3i README.md LICENSE NOTICE LICENSE.shaderc.apache-2.0 "$bundle/"
+          cp ../upstream/third_party/glslang/LICENSE.txt "$bundle/licenses/glslang.txt"
+          cp ../upstream/third_party/spirv-tools/LICENSE "$bundle/licenses/spirv-tools.txt"
+          cp ../upstream/third_party/spirv-headers/LICENSE "$bundle/licenses/spirv-headers.txt"
+          cp ../upstream/DEPS "$bundle/licenses/shaderc-DEPS"
+          git -C ../upstream rev-parse HEAD > "$bundle/licenses/shaderc-revision.txt"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cp build/native/libshaderc/Release/shaderc_shared.{dll,lib} "$bundle/windows/"
+          else
+            cp build/native/libshaderc/libshaderc_shared.so.1 "$bundle/linux/"
+          fi
+          tar -czf "dist/shaderc.c3l-${SHADERC_TARGET}.tar.gz" -C build/package shaderc.c3l
+          cd dist
+          sha256sum "shaderc.c3l-${SHADERC_TARGET}.tar.gz" > "shaderc.c3l-${SHADERC_TARGET}.tar.gz.sha256"
+      - name: Install C3 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/c3.tar.gz" \
+            "https://github.com/c3lang/c3c/releases/download/v${C3C_VERSION}/c3-linux-static.tar.gz"
+          tar -xzf "$RUNNER_TEMP/c3.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/c3" >> "$GITHUB_PATH"
+      - name: Install C3 (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/c3.zip" \
+            "https://github.com/c3lang/c3c/releases/download/v${C3C_VERSION}/c3-windows.zip"
+          unzip -q "$RUNNER_TEMP/c3.zip" -d "$RUNNER_TEMP"
+          cygpath -w "$RUNNER_TEMP/c3" >> "$GITHUB_PATH"
+      - name: Test packaged library
+        run: |
+          mkdir -p build/consumer
+          tar -xzf "dist/shaderc.c3l-${SHADERC_TARGET}.tar.gz" -C build/consumer
+          cd build
+          c3c compile ../tests/smoke.c3 --libdir consumer --lib shaderc --warn-deprecation=error -o smoke
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cp consumer/shaderc.c3l/windows/shaderc_shared.dll .
+            ./smoke.exe
+          else
+            LD_LIBRARY_PATH="$PWD/consumer/shaderc.c3l/linux" ./smoke
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shaderc-${{ matrix.target }}
+          path: shaderc.c3l/dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: native
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shaderc-*
+          merge-multiple: true
+          path: dist
+      - name: Verify and publish release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum -c ./*.sha256
+          gh release create "$GITHUB_REF_NAME" ./*.tar.gz ./*.sha256 \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$GITHUB_REF_NAME" --generate-notes
