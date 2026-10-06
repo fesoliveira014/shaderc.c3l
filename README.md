@@ -9,29 +9,16 @@ stored in Git.
 
 ## Install
 
-Download the bundle for your platform and its `.sha256` file from the same
-release:
+Each release publishes one artifact per platform and a `SHA256SUMS` file:
 
-- `shaderc.c3l-linux-x64.tar.gz`
-- `shaderc.c3l-windows-x64.tar.gz`
+- `shaderc-v<version>-linux-x64.c3l`
+- `shaderc-v<version>-windows-x64.c3l`
 
-Each bundle contains `shaderc.c3l/` with the binding, native libraries, and
-licenses. Verify and extract it into your dependency search path. For Linux:
-
-```sh
-sha256sum -c shaderc.c3l-linux-x64.tar.gz.sha256
-mkdir -p lib
-tar -xzf shaderc.c3l-linux-x64.tar.gz -C lib
-```
-
-On Windows, compare `Get-FileHash shaderc.c3l-windows-x64.tar.gz -Algorithm SHA256`
-with the downloaded `.sha256` file, then extract with `tar -xzf` as above.
-
-For a Git submodule, check out the matching release tag and extract the bundle
-into the submodule's parent directory (for example, `lib/`). GitHub's automatic
-"Source code" downloads contain no native libraries. Before a release is
-available, the same bundles can be downloaded from a successful CI run's
-artifacts.
+An artifact is a zip with `manifest.json` at its root. Verify it with
+`sha256sum -c SHA256SUMS` and place it in a directory listed under
+`dependency-search-paths`, for example `lib/`. Keep one platform's artifact per
+directory. GitHub's automatic "Source code" downloads contain no native
+libraries.
 
 ## Use
 
@@ -50,17 +37,22 @@ defer compiler.release();
 
 ## Runtime libraries
 
-- **Linux:** ship `linux/libshaderc_shared.so.1` and configure your executable's
-  RUNPATH or `LD_LIBRARY_PATH` to find it. CI builds on Ubuntu 22.04; the library
-  uses the system C++ runtime.
+The shared library must sit next to the executable on both platforms. After a
+build, c3c unpacks the artifact to
+`<output>/unpacked_c3l/shaderc-v<version>-<platform>.c3l/`; copy the library
+from its `linux/` or `windows/` directory, or unzip it from the artifact.
+
+- **Linux:** copy `linux/libshaderc_shared.so.1`. The manifest sets the
+  executable's RUNPATH to `$ORIGIN`. CI builds on Ubuntu 22.04; the library uses
+  the system C++ runtime.
 - **Windows:** `windows/shaderc_shared.lib` is the import library used at link
-  time. Ship `windows/shaderc_shared.dll` beside your executable.
+  time. Copy `windows/shaderc_shared.dll`.
 
 No Vulkan SDK, Vulkan driver, or GPU is needed to compile shaders.
 
 ## License
 
 The binding is MIT-licensed (`LICENSE`); shaderc is Apache-2.0 licensed
-(`LICENSE.shaderc.apache-2.0`). Bundles include the glslang, SPIRV-Tools, and
+(`LICENSE.shaderc.apache-2.0`). Artifacts include the glslang, SPIRV-Tools, and
 SPIRV-Headers licenses under `licenses/`. Keep these notices when redistributing
 binaries; see `NOTICE`.

@@ -1,8 +1,12 @@
 Native distributions include Google's shaderc, licensed under Apache-2.0.
 See LICENSE.shaderc.apache-2.0 and https://github.com/google/shaderc.
 
+The native libraries are linux/libshaderc_shared.so.1 (Linux), and
+windows/shaderc_shared.dll with its import library windows/shaderc_shared.lib
+(Windows), built from shaderc by CI.
+
 The shared library also includes glslang, SPIRV-Tools, and SPIRV-Headers.
-Their license texts are included under licenses/ in each binary bundle,
+Their license texts are included under licenses/ in each artifact,
 along with shaderc's source revision and upstream dependency pins.
 Keep these notices with redistributed binaries.
 
