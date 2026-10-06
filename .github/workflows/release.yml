@@ -170,10 +170,10 @@ jobs:
           cd build
           c3c compile ../tests/smoke.c3 --libdir consumer --lib shaderc --warn-deprecation=error -o smoke
           if [[ "$RUNNER_OS" == Windows ]]; then
-            cp "$(find . -path '*unpacked_c3l*' -name shaderc_shared.dll | head -n 1)" .
+            cp ../unpacked/windows/shaderc_shared.dll .
             ./smoke.exe
           else
-            cp "$(find . -path '*unpacked_c3l*' -name libshaderc_shared.so.1 | head -n 1)" .
+            cp ../unpacked/linux/libshaderc_shared.so.1 .
             ./smoke
           fi
 
