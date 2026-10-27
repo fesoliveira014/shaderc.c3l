@@ -1,7 +1,7 @@
 # shaderc.c3l
 
 C3 binding for [shaderc](https://github.com/google/shaderc), providing runtime
-GLSL to SPIR-V compilation on Linux x64 and Windows x64. Tested with C3 0.8.3.
+GLSL to SPIR-V compilation on Linux x64 and Windows x64. Tested with C3 0.8.5_1.
 
 Native binaries are built by CI and distributed through
 [releases](https://github.com/fesoliveira014/shaderc.c3l/releases). They are not
