@@ -1,7 +1,15 @@
 {
   "provides": "shaderc",
+  "linklib-dir": "linked-libs",
   "targets": {
-    "linux-x64":   { "link-args": [ "-Wl,-rpath,\\$ORIGIN" ], "linked-libraries": [":libshaderc_shared.so.1"] },
-    "windows-x64": { "linked-libraries": ["shaderc_shared"] }
+    "linux-x64": { "linked-libraries": ["shaderc_combined", "stdc++", "m", "pthread"] },
+    "windows-x64": { "wincrt": "static", "linked-libraries": ["shaderc_combined"] }
+  },
+  "vendor": {
+    "shaderc": "v2025.1",
+    "shaderc-commit": "0968768c61d4eb7dd861114412e904bb3d59b7b6",
+    "glslang-commit": "8b822ee8ac2c3e52926820f46ad858532a895951",
+    "spirv-tools-commit": "f289d047f49fb60488301ec62bafab85573668cc",
+    "spirv-headers-commit": "54a521dd130ae1b2f38fef79b09515702d135bdd"
   }
 }

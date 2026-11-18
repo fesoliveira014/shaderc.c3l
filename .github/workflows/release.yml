@@ -11,6 +11,7 @@ permissions:
 
 env:
   C3C_VERSION: '0.8.5_1'
+  SHADERC_REF: 0968768c61d4eb7dd861114412e904bb3d59b7b6 # v2025.1
 
 jobs:
   native:
@@ -23,13 +24,11 @@ jobs:
           - target: windows-x64
             os: windows-2022
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
         working-directory: shaderc.c3l
-    env:
-      SHADERC_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: google/shaderc
-          ref: 0968768c61d4eb7dd861114412e904bb3d59b7b6 # v2025.1
+          ref: ${{ env.SHADERC_REF }}
           path: upstream
       - uses: actions/setup-python@v5
         with:
@@ -49,34 +48,57 @@ jobs:
       - name: Fetch upstream dependencies
         working-directory: upstream
         run: python utils/git-sync-deps
-      - name: Build shared library
+      - name: Build the static library (Windows, /MT, no LTCG, no debug info)
+        if: runner.os == 'Windows'
+        env:
+          MSYS_NO_PATHCONV: '1' # Git Bash would rewrite the /D and /EH flags into paths
         run: |
-          cmake_args=()
-          if [[ "$RUNNER_OS" == Windows ]]; then
-            cmake_args=(-G "Visual Studio 17 2022" -A x64)
-          fi
-          cmake -S ../upstream -B build/native "${cmake_args[@]}" \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+          cmake -S ../upstream -B build/native -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+            -DCMAKE_POLICY_DEFAULT_CMP0091=NEW \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
+            -DCMAKE_CXX_FLAGS="/DWIN32 /D_WINDOWS /GR /EHsc /D_ITERATOR_DEBUG_LEVEL=0" \
             -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
             -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WERROR_COMPILE=OFF \
             -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
-            -DSHADERC_ENABLE_SHARED_CRT=OFF
-          cmake --build build/native --config Release --target shaderc_shared --parallel 2
-      - name: Stage natives
+            -DENABLE_GLSLANG_BINARIES=OFF -DSHADERC_ENABLE_SHARED_CRT=OFF
+          cmake --build build/native --target shaderc_combined --parallel 4
+      - name: Build the static library (Linux, PIC, libstdc++)
+        if: runner.os == 'Linux'
         run: |
-          mkdir -p stage/licenses
-          cp ../upstream/third_party/glslang/LICENSE.txt stage/licenses/glslang.txt
-          cp ../upstream/third_party/spirv-tools/LICENSE stage/licenses/spirv-tools.txt
-          cp ../upstream/third_party/spirv-headers/LICENSE stage/licenses/spirv-headers.txt
-          cp ../upstream/DEPS stage/licenses/shaderc-DEPS
-          git -C ../upstream rev-parse HEAD > stage/licenses/shaderc-revision.txt
+          cmake -S ../upstream -B build/native \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
+            -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WERROR_COMPILE=OFF \
+            -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
+            -DENABLE_GLSLANG_BINARIES=OFF -DSHADERC_ENABLE_SHARED_CRT=OFF
+          cmake --build build/native --target shaderc_combined --parallel 4
+      - name: Stage the archive
+        env:
+          SHADERC_TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p "stage/linked-libs/$SHADERC_TARGET"
           if [[ "$RUNNER_OS" == Windows ]]; then
-            mkdir stage/windows
-            cp build/native/libshaderc/Release/shaderc_shared.{dll,lib} stage/windows/
+            cp build/native/libshaderc/shaderc_combined.lib "stage/linked-libs/$SHADERC_TARGET/"
           else
-            mkdir stage/linux
-            cp build/native/libshaderc/libshaderc_shared.so.1 stage/linux/
+            cp build/native/libshaderc/libshaderc_combined.a "stage/linked-libs/$SHADERC_TARGET/"
+            strip --strip-debug "stage/linked-libs/$SHADERC_TARGET/libshaderc_combined.a"
           fi
+          ls -l "stage/linked-libs/$SHADERC_TARGET"
+      - name: Check the vendor pins against the manifest
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          manifest = json.load(open("manifest.json"))["vendor"]
+          for name in ("glslang", "spirv-tools", "spirv-headers"):
+              commit = subprocess.check_output(["git", "-C", f"../upstream/third_party/{name}", "rev-parse", "HEAD"], text=True).strip()
+              assert manifest[f"{name}-commit"] == commit, (name, manifest[f"{name}-commit"], commit)
+          shaderc = subprocess.check_output(["git", "-C", "../upstream", "rev-parse", "HEAD"], text=True).strip()
+          assert manifest["shaderc-commit"] == shaderc, (manifest["shaderc-commit"], shaderc)
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.target }}
@@ -92,9 +114,9 @@ jobs:
       - name: Resolve version
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+            echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
           else
-            echo "VERSION=0.0.0-dev" >> "$GITHUB_ENV"
+            echo "TAG=v0.0.0-dev" >> "$GITHUB_ENV"
           fi
       - uses: actions/download-artifact@v4
         with:
@@ -108,10 +130,15 @@ jobs:
             mkdir -p "$root"
             cp -r "natives/native-$platform/." "$root/"
             cp manifest.json shaderc.c3i README.md LICENSE LICENSE.shaderc.apache-2.0 NOTICE "$root/"
+            cp -r licenses "$root/licenses"
+            if find "$root" \( -name '*.dll' -o -name '*.so' -o -name '*.so.*' -o -name '*.dll.lib' \) | grep .; then
+              echo "a shared object leaked into the $platform artifact" >&2
+              exit 1
+            fi
             (cd "$root" && find . -type f | sed 's|^\./||' | LC_ALL=C sort \
-              | zip -X -q "../dist/shaderc-v${VERSION}-${platform}.c3l" -@)
+              | zip -X -q "../dist/shaderc-${TAG}-${platform}.c3l" -@)
           done
-          (cd dist && sha256sum ./*.c3l | sed 's|\./||' > SHA256SUMS && cat SHA256SUMS)
+          (cd dist && sha256sum ./*.c3l | sed 's|\./||' > SHA256SUMS && cat SHA256SUMS && ls -l)
       - uses: actions/upload-artifact@v4
         with:
           name: release-artifacts
@@ -119,7 +146,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  smoke:
+  proof:
     needs: package
     strategy:
       fail-fast: false
@@ -139,6 +166,10 @@ jobs:
         with:
           name: release-artifacts
           path: dist
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
       - name: Install C3 (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -156,30 +187,43 @@ jobs:
       - name: Verify checksums
         working-directory: dist
         run: sha256sum -c SHA256SUMS
-      - name: Compile unpacked sources
+      - name: Check the archive contents
         run: |
-          mkdir unpacked
-          unzip -q dist/*-${{ matrix.target }}.c3l -d unpacked
           unzip -l dist/*-${{ matrix.target }}.c3l
-          test -f unpacked/manifest.json
-          c3c compile-only --no-obj unpacked/shaderc.c3i
-      - name: Build and run against the packed library
+          if unzip -Z1 dist/*-${{ matrix.target }}.c3l | grep -E '\.(dll|so)($|\.)'; then
+            echo "shared objects in the archive" >&2
+            exit 1
+          fi
+          unzip -Z1 dist/*-${{ matrix.target }}.c3l | grep -E '^linked-libs/${{ matrix.target }}/(lib)?shaderc_combined\.(a|lib)$'
+      - name: Link and run against the packed archive
         run: |
           mkdir -p build/consumer
           cp dist/*-${{ matrix.target }}.c3l build/consumer/
           cd build
-          c3c compile ../tests/smoke.c3 --libdir consumer --lib shaderc --warn-deprecation=error -o smoke
+          c3c compile ../tests/static_proof.c3 --libdir consumer --lib shaderc --warn-deprecation=error -o static_proof 2>&1 | tee link.log
+          if grep -i -E 'warning|LNK4' link.log; then
+            echo "the build printed warnings" >&2
+            exit 1
+          fi
           if [[ "$RUNNER_OS" == Windows ]]; then
-            cp ../unpacked/windows/shaderc_shared.dll .
-            ./smoke.exe
+            dumpbin //nologo //dependents static_proof.exe | tee dependents.log
+            if grep -i -E 'VCRUNTIME|MSVCP|ucrtbase|api-ms-win-crt|shaderc' dependents.log; then
+              echo "dynamic CRT or shaderc dependency" >&2
+              exit 1
+            fi
+            ./static_proof.exe
           else
-            cp ../unpacked/linux/libshaderc_shared.so.1 .
-            ./smoke
+            ldd ./static_proof | tee dependents.log
+            if grep -i shaderc dependents.log; then
+              echo "libshaderc is linked dynamically" >&2
+              exit 1
+            fi
+            ./static_proof
           fi
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: smoke
+    needs: proof
     runs-on: ubuntu-22.04
     permissions:
       contents: write
