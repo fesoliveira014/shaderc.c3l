@@ -68,8 +68,9 @@ of one object is not. Serialize access to a shared compiler or option set.
 2. Set `SHADERC_REF` in `.github/workflows/release.yml` and the `vendor` block of
    `manifest.json` (the shaderc version and the four commits; CI fails when they
    disagree with what `git-sync-deps` checks out).
-3. Refresh `licenses/` (the LICENSE files of the four projects, `shaderc-DEPS`,
-   `shaderc-revision.txt`) from the new checkout, and compare `shaderc.h` against
+3. Refresh `licenses/` (the LICENSE files of glslang, SPIRV-Tools and
+   SPIRV-Headers, `shaderc-DEPS`, `shaderc-revision.txt`) and the root
+   `LICENSE.shaderc.apache-2.0` from the new checkout, and compare `shaderc.h` against
    `shaderc.c3i` for new or changed constants.
 4. Open a pull request (the workflow builds both archives and runs
    `tests/static_proof.c3` against them), then push the next `v*` tag to publish.

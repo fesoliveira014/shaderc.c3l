@@ -50,14 +50,15 @@ jobs:
         run: python utils/git-sync-deps
       - name: Build the static library (Windows, /MT, no LTCG, no debug info)
         if: runner.os == 'Windows'
+        env:
+          MSYS_NO_PATHCONV: '1' # Git Bash would rewrite the /D and /EH flags into paths
         run: |
           cmake -S ../upstream -B build/native -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
             -DCMAKE_POLICY_DEFAULT_CMP0091=NEW \
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
-            -DCMAKE_CXX_FLAGS=/D_ITERATOR_DEBUG_LEVEL=0 \
-            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_CXX_FLAGS="/DWIN32 /D_WINDOWS /GR /EHsc /D_ITERATOR_DEBUG_LEVEL=0" \
             -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON \
             -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WERROR_COMPILE=OFF \
             -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON \
