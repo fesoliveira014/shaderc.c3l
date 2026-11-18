@@ -1,7 +1,4 @@
 /build/
 /dist/
-/linux/*.so*
-/windows/*.dll
-/windows/*.lib
-/licenses/
+/linked-libs/
 /worktrees/
